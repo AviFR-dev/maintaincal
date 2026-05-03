@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import * as api from '../api';
+import { Logs } from './Logs';
 
-type Tab = 'users' | 'equipment';
+type Tab = 'users' | 'equipment' | 'logs';
 
 export function AdminPanel(props: { user: api.PublicUser; onOpenEquipment: (id: string) => void }) {
   const [tab, setTab] = useState<Tab>('users');
@@ -19,7 +20,7 @@ export function AdminPanel(props: { user: api.PublicUser; onOpenEquipment: (id: 
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <div className="text-2xl font-semibold tracking-tight">Admin</div>
-          <div className="mt-1 text-sm text-zinc-400">Manage users and equipment.</div>
+          <div className="mt-1 text-sm text-zinc-400">Manage users, equipment, and view audit logs.</div>
         </div>
         <div className="flex gap-2">
           <TabButton active={tab === 'users'} onClick={() => setTab('users')}>
@@ -28,10 +29,21 @@ export function AdminPanel(props: { user: api.PublicUser; onOpenEquipment: (id: 
           <TabButton active={tab === 'equipment'} onClick={() => setTab('equipment')}>
             Equipment
           </TabButton>
+          <TabButton active={tab === 'logs'} onClick={() => setTab('logs')}>
+            Logs
+          </TabButton>
         </div>
       </div>
 
-      <div className="mt-6">{tab === 'users' ? <UsersAdmin /> : <EquipmentAdmin onOpen={props.onOpenEquipment} />}</div>
+      <div className="mt-6">
+        {tab === 'users' ? (
+          <UsersAdmin />
+        ) : tab === 'equipment' ? (
+          <EquipmentAdmin onOpen={props.onOpenEquipment} />
+        ) : (
+          <Logs user={props.user} />
+        )}
+      </div>
     </div>
   );
 }

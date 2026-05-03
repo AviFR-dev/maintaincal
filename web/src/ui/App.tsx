@@ -6,6 +6,7 @@ import { EquipmentNew } from './EquipmentNew';
 import { Login } from './Login';
 import { Scan } from './Scan';
 import { AdminPanel } from './AdminPanel';
+import { ErrorBoundary } from './ErrorBoundary';
 
 type Route =
   | { name: 'login' }
@@ -146,19 +147,21 @@ export function App() {
   }, [bootError, route, user]);
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(1200px_600px_at_20%_-10%,rgba(59,130,246,0.15),transparent),radial-gradient(1200px_600px_at_80%_-10%,rgba(168,85,247,0.12),transparent)]">
-      {user ? (
-        <TopBar
-          user={user}
-          onLogout={async () => {
-            await api.logout();
-            setUser(null);
-            nav({ name: 'login' });
-          }}
-        />
-      ) : null}
-      {content}
-    </div>
+    <ErrorBoundary>
+      <div className="min-h-screen bg-[radial-gradient(1200px_600px_at_20%_-10%,rgba(59,130,246,0.15),transparent),radial-gradient(1200px_600px_at_80%_-10%,rgba(168,85,247,0.12),transparent)]">
+        {user ? (
+          <TopBar
+            user={user}
+            onLogout={async () => {
+              await api.logout();
+              setUser(null);
+              nav({ name: 'login' });
+            }}
+          />
+        ) : null}
+        {content}
+      </div>
+    </ErrorBoundary>
   );
 }
 

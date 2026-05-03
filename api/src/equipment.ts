@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import type { Db } from './db.js';
 import { nowIso, newId } from './db.js';
+import { logAudit } from './audit.js';
 
 export type EquipmentRow = {
   id: string;
@@ -42,7 +43,7 @@ export function computeNextDue(lastCalibratedAt: string | null | undefined, inte
   return next.toISOString();
 }
 
-export function createEquipment(db: Db, input: z.infer<typeof equipmentCreateSchema>) {
+export function createEquipment(db: Db, input: z.infer<typeof equipmentCreateSchema>, userId: string) {
   const id = newId();
   const ts = nowIso();
   const nextDueAt = computeNextDue(input.lastCalibratedAt, input.intervalDays);
@@ -73,6 +74,13 @@ export function createEquipment(db: Db, input: z.infer<typeof equipmentCreateSch
       VALUES (?, ?, ?, ?, ?, ?)
       `,
     ).run(newId(), id, input.intervalDays, input.graceDays ?? 0, input.lastCalibratedAt ?? null, nextDueAt);
+
+    logAudit(db, userId, 'create', 'equipment', id, {
+      name: input.name,
+      barcode: input.barcodeValue,
+      location: input.location,
+      intervalDays: input.intervalDays,
+    });
   });
 
   tx();
@@ -247,7 +255,7 @@ export function listDistinctModels(db: Db) {
   return rows.map((r) => r.model);
 }
 
-export function patchEquipment(db: Db, id: string, patch: z.infer<typeof equipmentPatchSchema>) {
+export function patchEquipment(db: Db, id: string, patch: z.infer<typeof equipmentPatchSchema>, userId: string) {
   const existing = getEquipment(db, id);
   if (!existing) return null;
 
@@ -272,6 +280,13 @@ export function patchEquipment(db: Db, id: string, patch: z.infer<typeof equipme
 
   const nextDueAt = computeNextDue(merged.rule.lastCalibratedAt, merged.rule.intervalDays);
   const ts = nowIso();
+
+  const changes: Record<string, any> = {};
+  if (patch.name) changes.name = patch.name;
+  if (patch.barcodeValue) changes.barcode = patch.barcodeValue;
+  if (patch.location) changes.location = patch.location;
+  if (patch.status) changes.status = patch.status;
+  if (patch.intervalDays) changes.intervalDays = patch.intervalDays;
 
   const tx = db.transaction(() => {
     db.prepare(
@@ -300,6 +315,10 @@ export function patchEquipment(db: Db, id: string, patch: z.infer<typeof equipme
       WHERE equipment_id = ?
       `,
     ).run(merged.rule.intervalDays, merged.rule.graceDays, merged.rule.lastCalibratedAt, nextDueAt, id);
+
+    if (Object.keys(changes).length > 0) {
+      logAudit(db, userId, 'update', 'equipment', id, changes);
+    }
   });
 
   tx();
@@ -328,6 +347,12 @@ export function addCalibrationEvent(db: Db, input: { equipmentId: string; calibr
       WHERE equipment_id = ?
       `,
     ).run(input.calibratedAt, nextDueAt, input.equipmentId);
+
+    logAudit(db, input.performedByUserId, 'calibration_added', 'calibration_event', evId, {
+      equipmentId: input.equipmentId,
+      calibratedAt: input.calibratedAt,
+      nextDueAt: nextDueAt,
+    });
   });
 
   tx();

@@ -55,9 +55,33 @@ export function migrate(db: Db) {
       FOREIGN KEY(performed_by_user_id) REFERENCES users(id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      action TEXT NOT NULL CHECK(action IN ('create','update','delete','login','logout','password_reset','user_created','user_updated','calibration_added')),
+      entity_type TEXT NOT NULL,
+      entity_id TEXT,
+      changes TEXT,
+      ip_address TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS password_reset_tokens (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_equipment_barcode ON equipment(barcode_value);
     CREATE INDEX IF NOT EXISTS idx_rules_next_due ON calibration_rules(next_due_at);
     CREATE INDEX IF NOT EXISTS idx_events_equipment ON calibration_events(equipment_id, calibrated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_user ON audit_logs(user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_entity ON audit_logs(entity_type, entity_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_expires ON password_reset_tokens(expires_at);
   `);
 }
 

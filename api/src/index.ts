@@ -19,6 +19,7 @@ import {
   patchEquipment,
 } from './equipment.js';
 import { registerAdminRoutes } from './admin.js';
+import { getAuditLogs, logAudit } from './audit.js';
 
 const env = z
   .object({
@@ -67,7 +68,16 @@ if (!existingAdmin) {
   app.log.info({ email: env.ADMIN_EMAIL }, 'Seeded admin user');
 }
 
-app.get('/health', async () => ({ ok: true }));
+app.get('/health', async (reply) => {
+  try {
+    // Check database connectivity
+    db.prepare('SELECT 1').get();
+    return { ok: true, timestamp: nowIso() };
+  } catch (e) {
+    reply.code(503);
+    return { ok: false, error: 'Database unavailable' };
+  }
+});
 
 registerAuthRoutes(app, db);
 registerAdminRoutes(app, db);
@@ -112,16 +122,16 @@ app.get('/equipment/by-barcode/:value', async (req, reply) => {
 });
 
 app.post('/equipment', async (req) => {
-  requireRole(req, 'admin');
+  const user = requireRole(req, 'admin');
   const body = equipmentCreateSchema.parse(req.body);
-  return createEquipment(db, body);
+  return createEquipment(db, body, user.id);
 });
 
 app.patch('/equipment/:id', async (req, reply) => {
-  requireRole(req, 'admin');
+  const user = requireRole(req, 'admin');
   const id = z.object({ id: z.string().min(1) }).parse(req.params).id;
   const body = equipmentPatchSchema.parse(req.body);
-  const updated = patchEquipment(db, id, body);
+  const updated = patchEquipment(db, id, body, user.id);
   if (!updated) return reply.code(404).send({ error: 'Not found' });
   return updated;
 });
@@ -138,6 +148,77 @@ app.post('/equipment/:id/calibration-events', async (req, reply) => {
   const updated = addCalibrationEvent(db, { equipmentId: id, calibratedAt: body.calibratedAt, performedByUserId: user.id, notes: body.notes });
   if (!updated) return reply.code(404).send({ error: 'Not found' });
   return updated;
+});
+
+app.get('/audit-logs', async (req) => {
+  requireRole(req, 'admin');
+  const querySchema = z.object({
+    limit: z.coerce.number().int().positive().default(100),
+    offset: z.coerce.number().int().nonnegative().default(0),
+    userId: z.string().optional(),
+    entityType: z.string().optional(),
+    action: z.string().optional(),
+  });
+  const q = querySchema.parse(req.query);
+  const logs = getAuditLogs(db, q.limit, q.offset, {
+    userId: q.userId,
+    entityType: q.entityType,
+    action: q.action as any,
+  });
+  return { logs };
+});
+
+app.get('/equipment/:id/audit', async (req, reply) => {
+  requireAuth(req);
+  const id = z.object({ id: z.string().min(1) }).parse(req.params).id;
+  const equipment = getEquipment(db, id);
+  if (!equipment) return reply.code(404).send({ error: 'Not found' });
+  
+  const logs = getAuditLogs(db, 50, 0, { entityType: 'equipment' }).filter(log => log.entityId === id);
+  return { logs };
+});
+
+app.get('/export/equipment', async (req, reply) => {
+  requireRole(req, 'admin');
+  const equipment = listEquipment(db, {});
+  const csv = `id,name,barcode,assetTag,location,model,serialNumber,status,intervalDays,lastCalibratedAt,nextDueAt,updatedAt
+${equipment.map(e => [
+    e.id,
+    `"${e.name.replace(/"/g, '""')}"`,
+    e.barcodeValue,
+    e.assetTag ? `"${e.assetTag.replace(/"/g, '""')}"` : '',
+    e.location ? `"${e.location.replace(/"/g, '""')}"` : '',
+    e.model ? `"${e.model.replace(/"/g, '""')}"` : '',
+    e.serialNumber ? `"${e.serialNumber.replace(/"/g, '""')}"` : '',
+    e.status,
+    e.intervalDays,
+    e.lastCalibratedAt || '',
+    e.nextDueAt || '',
+    e.updatedAt,
+  ].join(',')).join('\n')}`;
+  
+  reply.header('Content-Type', 'text/csv');
+  reply.header('Content-Disposition', `attachment; filename="equipment-export-${nowIso().split('T')[0]}.csv"`);
+  return reply.send(csv);
+});
+
+app.get('/export/audit-logs', async (req, reply) => {
+  requireRole(req, 'admin');
+  const logs = getAuditLogs(db, 10000, 0);
+  const csv = `id,user,action,entity,entityId,changes,timestamp
+${logs.map(l => [
+    l.id,
+    `"${l.userEmail?.replace(/"/g, '""') || 'unknown'}"`,
+    l.action,
+    l.entityType,
+    l.entityId || '',
+    l.changes ? `"${JSON.stringify(l.changes).replace(/"/g, '""')}"` : '',
+    l.createdAt,
+  ].join(',')).join('\n')}`;
+  
+  reply.header('Content-Type', 'text/csv');
+  reply.header('Content-Disposition', `attachment; filename="audit-logs-${nowIso().split('T')[0]}.csv"`);
+  return reply.send(csv);
 });
 
 const port = Number(env.PORT ?? '8080');

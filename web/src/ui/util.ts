@@ -13,3 +13,23 @@ export function dueBadge(nextDueAt: string | null) {
   return { label: `Due in ${days}d`, cls: 'border-emerald-900/60 bg-emerald-950/30 text-emerald-200' };
 }
 
+/**
+ * Escape HTML special characters to prevent XSS attacks.
+ */
+export function escapeHtml(text: string | null | undefined): string {
+  if (!text) return '';
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+/**
+ * Safe component for displaying user content
+ */
+export function SafeText({ text }: { text: string | null | undefined }) {
+  return <span>{escapeHtml(text)}</span>;
+}
+

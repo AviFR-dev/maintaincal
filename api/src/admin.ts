@@ -3,7 +3,8 @@ import bcrypt from 'bcryptjs';
 import type { FastifyInstance } from 'fastify';
 import type { Db } from './db.js';
 import { newId, nowIso } from './db.js';
-import { requireRole } from './auth.js';
+import { requireRole, validatePasswordStrength } from './auth.js';
+import { logAudit } from './audit.js';
 import type { Role } from './types.js';
 
 const roleSchema = z.enum(['admin', 'user']);
@@ -33,19 +34,28 @@ export function registerAdminRoutes(app: FastifyInstance, db: Db) {
   });
 
   app.post('/admin/users', async (req, reply) => {
-    requireRole(req, 'admin');
+    const admin = requireRole(req, 'admin');
     const body = createUserSchema.parse(req.body);
     const exists = db.prepare('SELECT id FROM users WHERE email = ?').get(body.email) as { id: string } | undefined;
     if (exists) return reply.code(409).send({ error: 'Email already exists' });
 
+    // Validate password strength
+    const validation = validatePasswordStrength(body.password);
+    if (!validation.valid) {
+      return reply.code(400).send({ error: validation.errors.join('; ') });
+    }
+
+    const userId = newId();
     const passwordHash = await bcrypt.hash(body.password, 10);
     db.prepare('INSERT INTO users (id, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)').run(
-      newId(),
+      userId,
       body.email,
       passwordHash,
       body.role,
       nowIso(),
     );
+    
+    logAudit(db, admin.id, 'user_created', 'user', userId, { email: body.email, role: body.role });
     return reply.code(201).send({ ok: true });
   });
 
@@ -61,6 +71,20 @@ export function registerAdminRoutes(app: FastifyInstance, db: Db) {
       return reply.code(400).send({ error: 'Cannot remove admin role from yourself' });
     }
 
+    const changes: Record<string, any> = {};
+
+    if (patch.password) {
+      const validation = validatePasswordStrength(patch.password);
+      if (!validation.valid) {
+        return reply.code(400).send({ error: validation.errors.join('; ') });
+      }
+      changes.passwordChanged = true;
+    }
+
+    if (patch.role) {
+      changes.roleChanged = `to ${patch.role}`;
+    }
+
     const tx = db.transaction(() => {
       if (patch.role) {
         db.prepare('UPDATE users SET role = ? WHERE id = ?').run(patch.role, id);
@@ -68,6 +92,9 @@ export function registerAdminRoutes(app: FastifyInstance, db: Db) {
       if (patch.password) {
         const passwordHash = bcrypt.hashSync(patch.password, 10);
         db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, id);
+      }
+      if (Object.keys(changes).length > 0) {
+        logAudit(db, admin.id, 'user_updated', 'user', id, changes);
       }
     });
     tx();
