@@ -1,0 +1,30 @@
+services:
+  api:
+    build:
+      context: ./api
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      - DATABASE_PATH=/data/maintaincal.sqlite3
+      - SESSION_SECRET=change-me-in-prod-change-me-in-prod-32!
+      - ADMIN_EMAIL=admin@example.com
+      - ADMIN_PASSWORD=admin1234
+      - ORIGIN=http://localhost:5173
+    ports:
+      - "8080:8080"
+    volumes:
+      - maintaincal-data:/data
+
+  web:
+    build:
+      context: ./web
+    environment:
+      - VITE_API_BASE=http://localhost:8080
+    ports:
+      - "5173:80"
+    depends_on:
+      - api
+
+volumes:
+  maintaincal-data:
+

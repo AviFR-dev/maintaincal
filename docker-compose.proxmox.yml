@@ -1,0 +1,41 @@
+services:
+  api:
+    build:
+      context: ./api
+    environment:
+      - NODE_ENV=production
+      - PORT=8080
+      - DATABASE_PATH=/data/maintaincal.sqlite3
+      - SESSION_SECRET=${SESSION_SECRET}
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - ORIGIN=${ORIGIN}
+    restart: unless-stopped
+    volumes:
+      - /var/lib/maintaincal/data:/data
+
+  web:
+    build:
+      context: ./web
+    environment:
+      - VITE_API_BASE=${VITE_API_BASE}
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    environment:
+      - MAINTAINCAL_HOST=${MAINTAINCAL_HOST}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - /var/lib/maintaincal/caddy/data:/data
+      - /var/lib/maintaincal/caddy/config:/config
+    depends_on:
+      - web
+      - api
+
